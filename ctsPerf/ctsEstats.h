@@ -15,8 +15,10 @@ See the Apache Version 2.0 License for specific language governing permissions a
 
 // cpp headers
 #include <string>
+#include <iostream>
 #include <vector>
 #include <set>
+#include <unordered_map>
 // os headers
 #include <Windows.h>
 // Winsock2 is needed for IPHelper headers
@@ -81,6 +83,7 @@ namespace details {
         return true;
     }
 
+
     template <TCP_ESTATS_TYPE TcpType>
     struct EstatsTypeConverter {};
 
@@ -90,62 +93,55 @@ namespace details {
         typedef TCP_ESTATS_SYN_OPTS_ROS_v0 read_only_static_type;
         typedef void* read_only_dynamic_type;
     };
-
     template<>
     struct EstatsTypeConverter<TcpConnectionEstatsData> {
         typedef TCP_ESTATS_DATA_RW_v0 read_write_type;
         typedef void* read_only_static_type;
         typedef TCP_ESTATS_DATA_ROD_v0 read_only_dynamic_type;
     };
-
     template<>
     struct EstatsTypeConverter<TcpConnectionEstatsSndCong> {
         typedef TCP_ESTATS_SND_CONG_RW_v0 read_write_type;
         typedef TCP_ESTATS_SND_CONG_ROS_v0 read_only_static_type;
         typedef TCP_ESTATS_SND_CONG_ROD_v0 read_only_dynamic_type;
     };
-
     template <>
     struct EstatsTypeConverter<TcpConnectionEstatsPath> {
         typedef TCP_ESTATS_PATH_RW_v0 read_write_type;
         typedef void* read_only_static_type;
         typedef TCP_ESTATS_PATH_ROD_v0 read_only_dynamic_type;
     };
-
     template <>
     struct EstatsTypeConverter<TcpConnectionEstatsSendBuff> {
         typedef TCP_ESTATS_SEND_BUFF_RW_v0 read_write_type;
         typedef void* read_only_static_type;
         typedef TCP_ESTATS_SEND_BUFF_ROD_v0 read_only_dynamic_type;
     };
-
     template <>
     struct EstatsTypeConverter<TcpConnectionEstatsRec> {
         typedef TCP_ESTATS_REC_RW_v0 read_write_type;
         typedef void* read_only_static_type;
         typedef TCP_ESTATS_REC_ROD_v0 read_only_dynamic_type;
     };
-
     template <>
     struct EstatsTypeConverter<TcpConnectionEstatsObsRec> {
         typedef TCP_ESTATS_OBS_REC_RW_v0 read_write_type;
         typedef void* read_only_static_type;
         typedef TCP_ESTATS_OBS_REC_ROD_v0 read_only_dynamic_type;
     };
-
     template <>
     struct EstatsTypeConverter<TcpConnectionEstatsBandwidth> {
         typedef TCP_ESTATS_BANDWIDTH_RW_v0 read_write_type;
         typedef void* read_only_static_type;
         typedef TCP_ESTATS_BANDWIDTH_ROD_v0 read_only_dynamic_type;
     };
-
     template <>
     struct EstatsTypeConverter<TcpConnectionEstatsFineRtt> {
         typedef TCP_ESTATS_FINE_RTT_RW_v0 read_write_type;
         typedef void* read_only_static_type;
         typedef TCP_ESTATS_FINE_RTT_ROD_v0 read_only_dynamic_type;
     };
+
 
     template <TCP_ESTATS_TYPE TcpType>
     void SetPerConnectionEstats(const PMIB_TCPROW tcpRow, typename EstatsTypeConverter<TcpType>::read_write_type *pRw)  // NOLINT
@@ -171,6 +167,7 @@ namespace details {
             throw ctl::ctException(err, L"SetPerTcp6ConnectionEStats", false);
         }
     }
+
 
     // TcpConnectionEstatsSynOpts is unique in that there isn't a RW type to query for
     inline ULONG GetPerConnectionStaticEstats(const PMIB_TCPROW tcpRow, TCP_ESTATS_SYN_OPTS_ROS_v0* pRos) noexcept  // NOLINT
@@ -272,6 +269,8 @@ namespace details {
         return error;
     }
 
+
+
     // the root template type that each ESTATS_TYPE will specialize for
     template <TCP_ESTATS_TYPE TcpType>
     class EstatsDataTracking {
@@ -293,7 +292,6 @@ namespace details {
         template <typename PTCPROW>
         void UpdateData(PTCPROW tcpRow, const ctl::ctSockaddr& localAddr, const ctl::ctSockaddr& remoteAddr) = delete;
     };
-
     template <>
     class EstatsDataTracking<TcpConnectionEstatsSynOpts> {
     public:
@@ -305,6 +303,13 @@ namespace details {
         {
             return L"," + std::to_wstring(MssRcvd) + L"," + std::to_wstring(MssSent);
         }
+        std::unordered_map<std::wstring, ULONG> getData()
+        {
+            return {
+                {L"MssRcvd", MssRcvd},
+                {L"MssSent", MssSent},
+            };
+        }
 
         template <typename PTCPROW>
         void StartTracking(const PTCPROW) const noexcept
@@ -312,7 +317,7 @@ namespace details {
             // always on
         }
         template <typename PTCPROW>
-        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr&, const ctl::ctSockaddr&)
+        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr &, const ctl::ctSockaddr &, EstatsDataTracking<TcpConnectionEstatsSynOpts> *previousData)
         {
             if (MssRcvd == 0) {
                 TCP_ESTATS_SYN_OPTS_ROS_v0 Ros;
@@ -320,10 +325,10 @@ namespace details {
                 if (0 == GetPerConnectionStaticEstats(tcpRow, &Ros)) {
 
                     if (IsRodValueValid(L"TcpConnectionEstatsSynOpts - MssRcvd", Ros.MssRcvd)) {
-                        MssRcvd = Ros.MssRcvd;
+                        MssRcvd = Ros.MssRcvd - previousData->getData().find("MssRcvd")->second;
                     }
                     if (IsRodValueValid(L"TcpConnectionEstatsSynOpts - MssSent", Ros.MssSent)) {
-                        MssSent = Ros.MssSent;
+                        MssSent = Ros.MssSent - previousData->getData().find("MssSent")->second;
                     }
                 }
             }
@@ -333,7 +338,6 @@ namespace details {
         ULONG MssRcvd = 0;
         ULONG MssSent = 0;
     };
-
     template <>
     class EstatsDataTracking<TcpConnectionEstatsData> {
     public:
@@ -345,6 +349,13 @@ namespace details {
         {
             return L"," + std::to_wstring(DataBytesIn) + L"," + std::to_wstring(DataBytesOut);
         }
+        std::unordered_map<std::wstring, ULONG64> getData()
+        {
+            return {
+                {L"DataBytesIn", DataBytesIn},
+                {L"DataBytesOut", DataBytesOut},
+            };
+        }
 
         template <typename PTCPROW>
         void StartTracking(const PTCPROW tcpRow) const
@@ -354,17 +365,17 @@ namespace details {
             SetPerConnectionEstats<TcpConnectionEstatsData>(tcpRow, &Rw);
         }
         template <typename PTCPROW>
-        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr&, const ctl::ctSockaddr&)
+        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr &, const ctl::ctSockaddr &, EstatsDataTracking<TcpConnectionEstatsData> *previousData)
         {
             TCP_ESTATS_DATA_ROD_v0 Rod;
             FillMemory(&Rod, sizeof Rod, -1);
             if (0 == GetPerConnectionDynamicEstats<TcpConnectionEstatsData>(tcpRow, &Rod)) {
 
                 if (IsRodValueValid(L"TcpConnectionEstatsData - DataBytesIn", Rod.DataBytesIn)) {
-                    DataBytesIn = Rod.DataBytesIn;
+                    DataBytesIn = Rod.DataBytesIn - previousData->getData().find("DataBytesIn")->second;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsData - DataBytesOut", Rod.DataBytesOut)) {
-                    DataBytesOut = Rod.DataBytesOut;
+                    DataBytesOut = Rod.DataBytesOut - previousData->getData().find("DataBytesOut")->second;
                 }
             }
         }
@@ -373,28 +384,38 @@ namespace details {
         ULONG64 DataBytesIn = 0;
         ULONG64 DataBytesOut = 0;
     };
-
     template <>
     class EstatsDataTracking<TcpConnectionEstatsSndCong> {
     public:
         static LPCWSTR PrintHeader() noexcept
         {
-            return L"CongWin(mean),CongWin(stddev),"
+            return L"CongWin,"
                 L"XIntoReceiverLimited,XIntoSenderLimited,XIntoCongestionLimited,"
                 L"BytesSentRecvLimited,BytesSentSenderLimited,BytesSentCongLimited";
         }
         std::wstring PrintData() const
         {
-            return
-                ctsPerf::ctsWriteDetails::PrintMeanStdDev(conjestionWindows) +
-                ctl::ctString::format_string(
-                    L",%lu,%lu,%lu,%Iu,%Iu,%Iu",
-                    transitionsIntoReceiverLimited,
-                    transitionsIntoSenderLimited,
-                    transitionsIntoCongestionLimited,
-                    bytesSentInReceiverLimited,
-                    bytesSentInSenderLimited,
-                    bytesSentInCongestionLimited);
+            return ctl::ctString::format_string(
+                   L",%lu%lu,%lu,%lu,%Iu,%Iu,%Iu",
+                   conjestionWindow,
+                   transitionsIntoReceiverLimited,
+                   transitionsIntoSenderLimited,
+                   transitionsIntoCongestionLimited,
+                   bytesSentInReceiverLimited,
+                   bytesSentInSenderLimited,
+                   bytesSentInCongestionLimited);
+        }
+        std::unordered_map<std::wstring, ULONG> getData()
+        {
+            return {
+                {L"conjestionWindow", conjestionWindow},
+                {L"bytesSentInReceiverLimited", bytesSentInReceiverLimited},
+                {L"bytesSentInSenderLimited", bytesSentInSenderLimited},
+                {L"bytesSentInCongestionLimited", bytesSentInCongestionLimited},
+                {L"transitionsIntoReceiverLimited", transitionsIntoReceiverLimited},
+                {L"transitionsIntoSenderLimited", transitionsIntoSenderLimited},
+                {L"transitionsIntoCongestionLimited", transitionsIntoCongestionLimited},
+            };
         }
 
         template <typename PTCPROW>
@@ -405,7 +426,7 @@ namespace details {
             SetPerConnectionEstats<TcpConnectionEstatsSndCong>(tcpRow, &Rw);
         }
         template <typename PTCPROW>
-        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr& localAddr, const ctl::ctSockaddr& remoteAddr)
+        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr& localAddr, const ctl::ctSockaddr& remoteAddr, EstatsDataTracking<TcpConnectionEstatsSndCong> *previousData)
         {
             TCP_ESTATS_SND_CONG_ROD_v0 Rod;
             FillMemory(&Rod, sizeof Rod, -1);
@@ -449,31 +470,31 @@ namespace details {
                 UNREFERENCED_PARAMETER(remoteAddr);
 
                 if (IsRodValueValid(L"TcpConnectionEstatsSndCong - CurCwnd", Rod.CurCwnd)) {
-                    conjestionWindows.push_back(Rod.CurCwnd);
+                    conjestionWindow = Rod.CurCwnd;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsSndCong - SndLimBytesRwin", Rod.SndLimBytesRwin)) {
-                    bytesSentInReceiverLimited = Rod.SndLimBytesRwin;
+                    bytesSentInReceiverLimited = Rod.SndLimBytesRwin - previousData->getData().find("bytesSentInReceiverLimited")->second;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsSndCong - SndLimBytesSnd", Rod.SndLimBytesSnd)) {
-                    bytesSentInSenderLimited = Rod.SndLimBytesSnd;
+                    bytesSentInSenderLimited = Rod.SndLimBytesSnd - previousData->getData().find("bytesSentInSenderLimited")->second;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsSndCong - SndLimBytesCwnd", Rod.SndLimBytesCwnd)) {
-                    bytesSentInCongestionLimited = Rod.SndLimBytesCwnd;
+                    bytesSentInCongestionLimited = Rod.SndLimBytesCwnd - previousData->getData().find("bytesSentInCongestionLimited")->second;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsSndCong - SndLimTransRwin", Rod.SndLimTransRwin)) {
-                    transitionsIntoReceiverLimited = Rod.SndLimTransRwin;
+                    transitionsIntoReceiverLimited = Rod.SndLimTransRwin - previousData->getData().find("transitionsIntoReceiverLimited")->second;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsSndCong - SndLimTransSnd", Rod.SndLimTransSnd)) {
-                    transitionsIntoSenderLimited = Rod.SndLimTransSnd;
+                    transitionsIntoSenderLimited = Rod.SndLimTransSnd - previousData->getData().find("transitionsIntoSenderLimited")->second;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsSndCong - SndLimTransCwnd", Rod.SndLimTransCwnd)) {
-                    transitionsIntoCongestionLimited = Rod.SndLimTransCwnd;
+                    transitionsIntoCongestionLimited = Rod.SndLimTransCwnd - previousData->getData().find("transitionsIntoCongestionLimited")->second;
                 }
             }
         }
 
     private:
-        std::vector<ULONG> conjestionWindows;
+        ULONG conjestionWindow;
 
         SIZE_T bytesSentInReceiverLimited = 0;
         SIZE_T bytesSentInSenderLimited = 0;
@@ -483,27 +504,38 @@ namespace details {
         ULONG transitionsIntoSenderLimited = 0;
         ULONG transitionsIntoCongestionLimited = 0;
     };
-
     template <>
     class EstatsDataTracking<TcpConnectionEstatsPath> {
     public:
         static LPCWSTR PrintHeader() noexcept
         {
             return L"BytesRetrans,DupeAcks,SelectiveAcks,CongSignals,MaxSegSize,"
-                L"RetransTimer(mean),RetransTimer(stddev),"
-                L"RTT(mean),Rtt(stddev)";
+                L"RetransTimer,"
+                L"RTT";
         }
         std::wstring PrintData() const
         {
             return ctl::ctString::format_string(
-                L",%lu,%lu,%lu,%lu,%lu",
+                L",%lu,%lu,%lu,%lu,%lu,%lu,%lu",
                 bytesRetrans,
                 dupAcksRcvd,
                 sacksRcvd,
                 congestionSignals,
-                maxSegmentSize) +
-                ctsWriteDetails::PrintMeanStdDev(retransmitTimer) +
-                ctsWriteDetails::PrintMeanStdDev(roundTripTime);
+                maxSegmentSize,
+                retransmitTimer,
+                roundTripTime);
+        }
+        std::unordered_map<std::wstring, ULONG> getData()
+        {
+            return {
+                {L"retransmitTimer", retransmitTimer},
+                {L"roundTripTime", roundTripTime},
+                {L"bytesRetrans", bytesRetrans},
+                {L"dupAcksRcvd", dupAcksRcvd},
+                {L"sacksRcvd", sacksRcvd},
+                {L"congestionSignals", congestionSignals},
+                {L"maxSegmentSize", maxSegmentSize},
+            };
         }
 
         template <typename PTCPROW>
@@ -514,7 +546,7 @@ namespace details {
             SetPerConnectionEstats<TcpConnectionEstatsPath>(tcpRow, &Rw);
         }
         template <typename PTCPROW>
-        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr& localAddr, const ctl::ctSockaddr& remoteAddr)
+        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr &localAddr, const ctl::ctSockaddr &remoteAddr, EstatsDataTracking<TcpConnectionEstatsPath> *previousData)
         {
             TCP_ESTATS_PATH_ROD_v0 Rod;
             FillMemory(&Rod, sizeof Rod, -1);
@@ -558,22 +590,22 @@ namespace details {
                 UNREFERENCED_PARAMETER(remoteAddr);
 
                 if (IsRodValueValid(L"TcpConnectionEstatsPath - CurRto", Rod.CurRto)) {
-                    retransmitTimer.push_back(Rod.CurRto);
+                    retransmitTimer = Rod.CurRto;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsPath - SmoothedRtt", Rod.SmoothedRtt)) {
-                    roundTripTime.push_back(Rod.SmoothedRtt);
+                    roundTripTime = Rod.SmoothedRtt;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsPath - BytesRetrans", Rod.BytesRetrans)) {
-                    bytesRetrans = Rod.BytesRetrans;
+                    bytesRetrans = Rod.BytesRetrans - previousData->getData().find("bytesRetrans")->second;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsPath - DupAcksIn", Rod.DupAcksIn)) {
-                    dupAcksRcvd = Rod.DupAcksIn;
+                    dupAcksRcvd = Rod.DupAcksIn - previousData->getData().find("dupAcksRcvd")->second;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsPath - SacksRcvd", Rod.SacksRcvd)) {
-                    sacksRcvd = Rod.SacksRcvd;
+                    sacksRcvd = Rod.SacksRcvd - previousData->getData().find("sacksRcvd")->second;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsPath - CongSignals", Rod.CongSignals)) {
-                    congestionSignals = Rod.CongSignals;
+                    congestionSignals = Rod.CongSignals - previousData->getData().find("congestionSignals")->second;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsPath - CurMss", Rod.CurMss)) {
                     maxSegmentSize = Rod.CurMss;
@@ -582,25 +614,29 @@ namespace details {
         }
 
     private:
-        std::vector<ULONG> retransmitTimer;
-        std::vector<ULONG> roundTripTime;
+        ULONG retransmitTimer;
+        ULONG roundTripTime;
         ULONG bytesRetrans = 0;
         ULONG dupAcksRcvd = 0;
         ULONG sacksRcvd = 0;
         ULONG congestionSignals = 0;
         ULONG maxSegmentSize = 0;
     };
-
     template <>
     class EstatsDataTracking<TcpConnectionEstatsRec> {
     public:
         static LPCWSTR PrintHeader() noexcept
         {
-            return L"LocalRecvWin(min),LocalRecvWin(max),LocalRecvWin(calculated-min),LocalRecvWin(calculated-max),LocalRecvWin(calculated-mean),LocalRecvWin(calculated-stddev)";
+            return L"LocalRecvWin(cur),LocalRecvWin(min),LocalRecvWin(max)";
         }
         std::wstring PrintData() const
         {
             std::wstring formattedString(L",");
+
+            formattedString += (curReceiveWindow == InvalidLongEstatsValue) ? 
+                L"(bad)," : 
+                ctl::ctString::format_string(L"%lu,", curReceiveWindow);
+
             formattedString += (minReceiveWindow == InvalidLongEstatsValue) ?
                 L"(bad)," :
                 ctl::ctString::format_string(L"%lu,", minReceiveWindow);
@@ -609,33 +645,15 @@ namespace details {
                 L"(bad)," :
                 ctl::ctString::format_string(L"%lu,", maxReceiveWindow);
 
-            ULONG calculatedMin = InvalidLongEstatsValue;
-            ULONG calculatedMax = InvalidLongEstatsValue;
-            for (const auto& value : receiveWindow)
-            {
-                if (calculatedMin == InvalidLongEstatsValue) {
-                    calculatedMin = value;
-                } else if (value < calculatedMin) {
-                    calculatedMin = value;
-
-                } if (calculatedMax == InvalidLongEstatsValue) {
-                    calculatedMax = value;
-                } else if (value > calculatedMax) {
-                    calculatedMax = value;
-                }
-            }
-
-            formattedString += (calculatedMin == InvalidLongEstatsValue) ?
-                L"(bad)," :
-                ctl::ctString::format_string(L"%lu,", calculatedMin);
-
-            formattedString += (calculatedMax == InvalidLongEstatsValue) ?
-                L"(bad)," :
-                ctl::ctString::format_string(L"%lu", calculatedMax);
-
-            return
-                formattedString +
-                ctsWriteDetails::PrintMeanStdDev(receiveWindow);
+            return formattedString;
+        }
+        std::unordered_map<std::wstring, ULONG> getData()
+        {
+            return {
+                {L"curReceiveWindow", curReceiveWindow},
+                {L"minReceiveWindow", minReceiveWindow},
+                {L"maxReceiveWindow", maxReceiveWindow},
+            };
         }
 
         template <typename PTCPROW>
@@ -647,7 +665,7 @@ namespace details {
         }
 
         template <typename PTCPROW>
-        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr& localAddr, const ctl::ctSockaddr& remoteAddr)
+        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr &localAddr, const ctl::ctSockaddr &remoteAddr, EstatsDataTracking<TcpConnectionEstatsRec> *previousData)
         {
             TCP_ESTATS_REC_ROD_v0 Rod;
             FillMemory(&Rod, sizeof Rod, -1);
@@ -680,7 +698,7 @@ namespace details {
                 UNREFERENCED_PARAMETER(remoteAddr);
 
                 if (IsRodValueValid(L"TcpConnectionEstatsRec - CurRwinSent", Rod.CurRwinSent)) {
-                    receiveWindow.push_back(Rod.CurRwinSent);
+                    curReceiveWindow = Rod.CurRwinSent;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsRec - MinRwinSent", Rod.MinRwinSent)) {
                     minReceiveWindow = Rod.MinRwinSent;
@@ -692,57 +710,42 @@ namespace details {
         }
 
     private:
-        std::vector<ULONG> receiveWindow;
+        ULONG curReceiveWindow = 0;
         ULONG minReceiveWindow = 0;
         ULONG maxReceiveWindow = 0;
     };
-
     template <>
     class EstatsDataTracking<TcpConnectionEstatsObsRec> {
     public:
         static LPCWSTR PrintHeader() noexcept
         {
-            return L"RemoteRecvWin(min),RemoteRecvWin(max),RemoteRecvWin(calculated-min),RemoteRecvWin(calculated-max),RemoteRecvWin(calculated-mean),RemoteRecvWin(calculated-stddev)";
+            return L"LocalRecvWin(cur),LocalRecvWin(min),LocalRecvWin(max)";
         }
         std::wstring PrintData() const
         {
             std::wstring formattedString(L",");
-            formattedString += (minReceiveWindow == InvalidLongEstatsValue) ?
-                L"(bad)," :
+
+            formattedString += (curReceiveWindow == InvalidLongEstatsValue) ? 
+                L"(bad)," : 
+                ctl::ctString::format_string(L"%lu,", curReceiveWindow);
+
+            formattedString += (minReceiveWindow == InvalidLongEstatsValue) ? 
+                L"(bad)," : 
                 ctl::ctString::format_string(L"%lu,", minReceiveWindow);
 
-            formattedString += (maxReceiveWindow == InvalidLongEstatsValue) ?
-                L"(bad)," :
+            formattedString += (maxReceiveWindow == InvalidLongEstatsValue) ? 
+                L"(bad)," : 
                 ctl::ctString::format_string(L"%lu,", maxReceiveWindow);
 
-            ULONG calculatedMin = InvalidLongEstatsValue;
-            ULONG calculatedMax = InvalidLongEstatsValue;
-            for (const auto& value : receiveWindow)
-            {
-                if (calculatedMin == InvalidLongEstatsValue) {
-                    calculatedMin = value;
-                } else if (value < calculatedMin) {
-                    calculatedMin = value;
-                }
-
-                if (calculatedMax == InvalidLongEstatsValue) {
-                    calculatedMax = value;
-                } else if (value > calculatedMax) {
-                    calculatedMax = value;
-                }
-            }
-
-            formattedString += (calculatedMin == InvalidLongEstatsValue) ?
-                L"(bad)," :
-                ctl::ctString::format_string(L"%lu,", calculatedMin);
-
-            formattedString += (calculatedMax == InvalidLongEstatsValue) ?
-                L"(bad)," :
-                ctl::ctString::format_string(L"%lu", calculatedMax);
-
-            return
-                formattedString + 
-                ctsWriteDetails::PrintMeanStdDev(receiveWindow);
+            return formattedString;
+        }
+        std::unordered_map<std::wstring, ULONG> getData()
+        {
+            return {
+                {L"curReceiveWindow", curReceiveWindow},
+                {L"minReceiveWindow", minReceiveWindow},
+                {L"maxReceiveWindow", maxReceiveWindow},
+            };
         }
 
         template <typename PTCPROW>
@@ -753,7 +756,7 @@ namespace details {
             SetPerConnectionEstats<TcpConnectionEstatsObsRec>(tcpRow, &Rw);
         }
         template <typename PTCPROW>
-        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr& localAddr, const ctl::ctSockaddr& remoteAddr)
+        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr &localAddr, const ctl::ctSockaddr &remoteAddr, EstatsDataTracking<TcpConnectionEstatsObsRec> *previousData)
         {
             TCP_ESTATS_OBS_REC_ROD_v0 Rod;
             FillMemory(&Rod, sizeof Rod, -1);
@@ -786,7 +789,7 @@ namespace details {
                 UNREFERENCED_PARAMETER(remoteAddr);
 
                 if (IsRodValueValid(L"TcpConnectionEstatsObsRec - CurRwinRcvd", Rod.CurRwinRcvd)) {
-                    receiveWindow.push_back(Rod.CurRwinRcvd);
+                    curReceiveWindow = Rod.CurRwinRcvd;
                 }
                 if (IsRodValueValid(L"TcpConnectionEstatsObsRec - MinRwinRcvd", Rod.MinRwinRcvd)) {
                     minReceiveWindow = Rod.MinRwinRcvd;
@@ -798,11 +801,11 @@ namespace details {
         }
 
     private:
-        std::vector<ULONG> receiveWindow;
+        ULONG curReceiveWindow = 0;
         ULONG minReceiveWindow = 0;
         ULONG maxReceiveWindow = 0;
     };
-
+    // TODO: Implement
     template <>
     class EstatsDataTracking<TcpConnectionEstatsBandwidth> {
     public:
@@ -814,6 +817,10 @@ namespace details {
         {
             return L"";
         }
+        std::unordered_map<std::wstring, ULONG> getData()
+        {
+            return {};
+        }
 
         template <typename PTCPROW>
         void StartTracking(const PTCPROW tcpRow) const
@@ -824,7 +831,7 @@ namespace details {
             SetPerConnectionEstats<TcpConnectionEstatsBandwidth>(tcpRow, &Rw);
         }
         template <typename PTCPROW>
-        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr&, const ctl::ctSockaddr&)
+        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr &, const ctl::ctSockaddr &, EstatsDataTracking<TcpConnectionEstatsBandwidth> *previousData)
         {
             TCP_ESTATS_BANDWIDTH_ROD_v0 Rod;
             FillMemory(&Rod, sizeof Rod, -1);
@@ -833,7 +840,7 @@ namespace details {
             }
         }
     };
-
+    // TODO: Implement
     template <>
     class EstatsDataTracking<TcpConnectionEstatsFineRtt> {
     public:
@@ -845,6 +852,10 @@ namespace details {
         {
             return L"";
         }
+        std::unordered_map<std::wstring, ULONG> getData()
+        {
+            return {};
+        }
 
         template <typename PTCPROW>
         void StartTracking(const PTCPROW tcpRow) const
@@ -854,7 +865,7 @@ namespace details {
             SetPerConnectionEstats<TcpConnectionEstatsFineRtt>(tcpRow, &Rw);
         }
         template <typename PTCPROW>
-        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr&, const ctl::ctSockaddr&)
+        void UpdateData(const PTCPROW tcpRow, const ctl::ctSockaddr &, const ctl::ctSockaddr &, EstatsDataTracking<TcpConnectionEstatsFineRtt> *previousData)
         {
             TCP_ESTATS_FINE_RTT_ROD_v0 Rod;
             FillMemory(&Rod, sizeof Rod, -1);
@@ -961,10 +972,10 @@ namespace details {
         }
 
         template <typename T>
-        void UpdateData(T tcpRow, ULONG currentCounter) const
+        void UpdateData(T tcpRow, ULONG currentCounter, EstatsDataTracking<TcpType>* previousData) const
         {
             latestCounter = currentCounter;
-            data.UpdateData(tcpRow, localAddr, remoteAddr);
+            data.UpdateData(tcpRow, localAddr, remoteAddr, previousData);
         }
 
         ctl::ctSockaddr LocalAddr() const noexcept
@@ -992,6 +1003,8 @@ namespace details {
     };
 } // namespace
 
+
+
 class ctsEstats
 {
 public:
@@ -1002,52 +1015,65 @@ public:
         tcpTable(StartingTableSize)
     {
     }
+
+
     ctsEstats(const ctsEstats&) = delete;
     ctsEstats& operator=(const ctsEstats&) = delete;
     ctsEstats(ctsEstats&&) = delete;
     ctsEstats& operator=(ctsEstats&&) = delete;
+
 
     ~ctsEstats() noexcept
     {
         timer.stop_all_timers();
 
         try {
-            for (const auto& entry : pathInfoData) {
-                pathInfoWriter.write_row(
-                    entry.PrintAddresses() +
-                    entry.PrintData());
-            }
-
-            for (const auto& entry : localReceiveWindowData) {
-                const details::EstatsDataPoint<TcpConnectionEstatsObsRec> matchingData(
-                    entry.LocalAddr(),
-                    entry.RemoteAddr());
-
-                const auto foundEntry = remoteReceiveWindowData.find(matchingData);
-                if (foundEntry != remoteReceiveWindowData.end()) {
-                    receiveWindowWriter.write_row(
-                        entry.PrintAddresses() +
-                        entry.PrintData() +
-                        foundEntry->PrintData());
-                }
-            }
-
-            for (const auto& entry : senderCongestionData) {
-                const details::EstatsDataPoint<TcpConnectionEstatsData> matchingData(
-                    entry.LocalAddr(),
-                    entry.RemoteAddr());
-
-                const auto foundEntry = byteTrackingData.find(matchingData);
-                if (foundEntry != byteTrackingData.end()) {
-                    senderCongestionWriter.write_row(
-                        entry.PrintAddresses() +
-                        entry.PrintData() +
-                        foundEntry->PrintData());
-                }
-            }
+            writeMostRecentData();
         }
         catch (const std::exception& e) {
             wprintf(L"~Estats exception: %ws\n", ctl::ctString::format_exception(e).c_str());
+        }
+    }
+
+    void writeMostRecentData()
+    {
+        for (const auto &entry : pathInfoDataTable.back())
+        {
+            pathInfoWriter.write_row(
+                entry.PrintAddresses() +
+                entry.PrintData());
+        }
+
+        for (const auto &entry : localReceiveWindowDataTable.back())
+        {
+            const details::EstatsDataPoint<TcpConnectionEstatsObsRec> matchingData(
+                entry.LocalAddr(),
+                entry.RemoteAddr());
+
+            const auto foundEntry = remoteReceiveWindowDataTable.back().find(matchingData);
+            if (foundEntry != remoteReceiveWindowDataTable.back().end())
+            {
+                receiveWindowWriter.write_row(
+                    entry.PrintAddresses() +
+                    entry.PrintData() +
+                    foundEntry->PrintData());
+            }
+        }
+
+        for (const auto &entry : senderCongestionDataTable.back())
+        {
+            const details::EstatsDataPoint<TcpConnectionEstatsData> matchingData(
+                entry.LocalAddr(),
+                entry.RemoteAddr());
+
+            const auto foundEntry = byteTrackingDataTable.back().find(matchingData);
+            if (foundEntry != byteTrackingDataTable.back().end())
+            {
+                senderCongestionWriter.write_row(
+                    entry.PrintAddresses() +
+                    entry.PrintData() +
+                    foundEntry->PrintData());
+            }
         }
     }
 
@@ -1085,12 +1111,12 @@ public:
 private:
     ctl::ctThreadpoolTimer timer;
 
-    std::set<details::EstatsDataPoint<TcpConnectionEstatsSynOpts>> synOptsData;
-    std::set<details::EstatsDataPoint<TcpConnectionEstatsData>> byteTrackingData;
-    std::set<details::EstatsDataPoint<TcpConnectionEstatsPath>> pathInfoData;
-    std::set<details::EstatsDataPoint<TcpConnectionEstatsRec>> localReceiveWindowData;
-    std::set<details::EstatsDataPoint<TcpConnectionEstatsObsRec>> remoteReceiveWindowData;
-    std::set<details::EstatsDataPoint<TcpConnectionEstatsSndCong>> senderCongestionData;
+    std::vector<std::set<details::EstatsDataPoint<TcpConnectionEstatsSynOpts>>> synOptsDataTable;
+    std::vector<std::set<details::EstatsDataPoint<TcpConnectionEstatsData>>> byteTrackingDataTable;
+    std::vector<std::set<details::EstatsDataPoint<TcpConnectionEstatsPath>>> pathInfoDataTable;
+    std::vector<std::set<details::EstatsDataPoint<TcpConnectionEstatsRec>>> localReceiveWindowDataTable;
+    std::vector<std::set<details::EstatsDataPoint<TcpConnectionEstatsObsRec>>> remoteReceiveWindowDataTable;
+    std::vector<std::set<details::EstatsDataPoint<TcpConnectionEstatsSndCong>>> senderCongestionDataTable;
 
     ctsWriteDetails pathInfoWriter;
     ctsWriteDetails receiveWindowWriter;
@@ -1110,8 +1136,10 @@ private:
             // IPv4
             RefreshIPv4Data();
             const auto pIpv4TcpTable = reinterpret_cast<PMIB_TCPTABLE>(&tcpTable[0]);
+            // Update all stats for each IPv4 entry
             for (unsigned count = 0; count < pIpv4TcpTable->dwNumEntries; ++count)
             {
+                // Ignore listening, closed, and closing connections
                 const auto tableEntry = &pIpv4TcpTable->table[count];
                 if (tableEntry->dwState == MIB_TCP_STATE_LISTEN ||
                     tableEntry->dwState == MIB_TCP_STATE_TIME_WAIT ||
@@ -1120,12 +1148,12 @@ private:
                 }
 
                 try {
-                    UpdateDataPoints(synOptsData, tableEntry);
-                    UpdateDataPoints(byteTrackingData, tableEntry);
-                    UpdateDataPoints(pathInfoData, tableEntry);
-                    UpdateDataPoints(localReceiveWindowData, tableEntry);
-                    UpdateDataPoints(remoteReceiveWindowData, tableEntry);
-                    UpdateDataPoints(senderCongestionData, tableEntry);
+                    UpdateDataPoints(synOptsDataTable, tableEntry);
+                    UpdateDataPoints(byteTrackingDataTable, tableEntry);
+                    UpdateDataPoints(pathInfoDataTable, tableEntry);
+                    UpdateDataPoints(localReceiveWindowDataTable, tableEntry);
+                    UpdateDataPoints(remoteReceiveWindowDataTable, tableEntry);
+                    UpdateDataPoints(senderCongestionDataTable, tableEntry);
                 }
                 catch (const ctl::ctException& e) {
                     if (e.why() == ERROR_ACCESS_DENIED) {
@@ -1138,8 +1166,10 @@ private:
             // IPv6
             RefreshIPv6Data();
             const auto pIpv6TcpTable = reinterpret_cast<PMIB_TCP6TABLE>(&tcpTable[0]);
+            // Update all stats for each IPv6 entry
             for (unsigned count = 0; count < pIpv6TcpTable->dwNumEntries; ++count)
             {
+                // Ignore listening, closed, and closing connections
                 const auto tableEntry = &pIpv6TcpTable->table[count];
                 if (tableEntry->State == MIB_TCP_STATE_LISTEN ||
                     tableEntry->State == MIB_TCP_STATE_TIME_WAIT ||
@@ -1148,12 +1178,12 @@ private:
                 }
 
                 try {
-                    UpdateDataPoints(synOptsData, tableEntry);
-                    UpdateDataPoints(byteTrackingData, tableEntry);
-                    UpdateDataPoints(pathInfoData, tableEntry);
-                    UpdateDataPoints(localReceiveWindowData, tableEntry);
-                    UpdateDataPoints(remoteReceiveWindowData, tableEntry);
-                    UpdateDataPoints(senderCongestionData, tableEntry);
+                    UpdateDataPoints(synOptsDataTable, tableEntry);
+                    UpdateDataPoints(byteTrackingDataTable, tableEntry);
+                    UpdateDataPoints(pathInfoDataTable, tableEntry);
+                    UpdateDataPoints(localReceiveWindowDataTable, tableEntry);
+                    UpdateDataPoints(remoteReceiveWindowDataTable, tableEntry);
+                    UpdateDataPoints(senderCongestionDataTable, tableEntry);
                 }
                 catch (const ctl::ctException& e) {
                     if (e.why() == ERROR_ACCESS_DENIED) {
@@ -1225,20 +1255,36 @@ private:
     }
 
     template <TCP_ESTATS_TYPE TcpType, typename Mibtype>
-    void UpdateDataPoints(std::set<details::EstatsDataPoint<TcpType>>& data, Mibtype tableEntry)
+    void UpdateDataPoints(std::vector<std::set<details::EstatsDataPoint<TcpType>>>& dataTable, Mibtype tableEntry)
     {
-        const auto emplaceResults = data.emplace(tableEntry);
-        // first == iterator inserted
-        // second == bool if inserted
-        if (emplaceResults.second)
-        {
-            emplaceResults.first->StartTracking(tableEntry);
-        }
-        emplaceResults.first->UpdateData(tableEntry, tableCounter);
+        std::wcout << dataTable.size() << tableEntry->dwLocalAddr << std::endl;
+        // const auto localAddr = tableEntry->dwLocalAddr;
+        // const auto remoteAddr = tableEntry->dwRemoteAddr;
+
+        // // Initialize a new tcp connection entry in the set
+        // const auto emplaceResults = dataTable.back().emplace(tableEntry);
+
+        // // Attempt to get previous entry
+
+        // const auto previousDataPoint = dataTable.back().find(
+        //     details::EstatsDataPoint<TcpType>(localAddr, remoteAddr));
+        // // If previous entry present
+        // if (previousDataPoint != dataTable.back().end())
+        // {
+        //     emplaceResults.first->UpdateData(tableEntry, tableCounter, &previousDataPoint);
+        // }
+        // // If this is the first entry of this connection
+        // else
+        // {
+        //     emplaceResults.first->StartTracking(tableEntry);
+        //     emplaceResults.first->UpdateData(tableEntry, tableCounter, nullptr);
+        // }
     }
 
+    //TODO
     void RemoveStaleDataPoints()
     {
+        /*
         // walk the set of synOptsData. If an address wasn't found to have been updated
         // with the latest data, then we'll remove that tuple (local address + remote address)
         // from all the data sets and finish printing their rows
@@ -1319,6 +1365,7 @@ private:
                 return dataPoint.LastestCounter() != tableCounter;
             });
         } // while loop
+        */
     }
 };
 } // namespace
