@@ -1434,6 +1434,55 @@ public:
         return started;
     }
 
+    std::vector<std::vector<ULONG64>> GetStatsData(std::wstring statName) {
+        // Handle different data structure types
+        // This sucks but I don't have time to figure out how to templatize this
+
+        std::vector<std::vector<ULONG64>> values;
+        switch (trackedStatisticsDataTypes.at(statName))
+        {
+            case TcpConnectionEstatsSynOpts:
+                for (const auto &entry :  synOptsData) {
+                    values.push_back(*(entry.GetData().at(statName)));
+                }
+                break;
+            case TcpConnectionEstatsData:
+                for (const auto &entry :  byteTrackingData) {
+                    values.push_back(*(entry.GetData().at(statName)));
+                }
+                break;
+            case TcpConnectionEstatsPath:
+                for (const auto &entry :  pathInfoData) {
+                    values.push_back(*(entry.GetData().at(statName)));
+                }
+                break;
+            case TcpConnectionEstatsRec:
+                for (const auto &entry :  localReceiveWindowData) {
+                    values.push_back(*(entry.GetData().at(statName)));
+                }
+                break;
+            case TcpConnectionEstatsObsRec:
+                for (const auto &entry :  remoteReceiveWindowData) {
+                    values.push_back(*(entry.GetData().at(statName)));
+                }
+                break;
+            case TcpConnectionEstatsSndCong:
+                for (const auto &entry :  senderCongestionData) {
+                    values.push_back(*(entry.GetData().at(statName)));
+                }
+                break;
+            case TcpConnectionEstatsBandwidth:
+                for (const auto &entry :  bandwidthData) {
+                    values.push_back(*(entry.GetData().at(statName)));
+                }
+                break;
+            default: // Never occurs bc this is an enum
+                break;
+        }
+
+        return values;
+    }
+
 private:
     ctl::ctThreadpoolTimer timer;
 
@@ -1504,12 +1553,6 @@ private:
         {L"inboundBandwidth",                 TcpConnectionEstatsBandwidth},
         {L"outboundInstability",              TcpConnectionEstatsBandwidth},
         {L"inboundInstability",               TcpConnectionEstatsBandwidth}
-    };
-
-    enum TRACKING_TYPE {
-        UNTRACKED,
-        GLOBAL,
-        DETAIL
     };
 
     // List of enabled global stats
@@ -1740,7 +1783,6 @@ private:
 
         return perConnectionSatisticSummaries;
     }
-
 
     void OpenAndStartGlobalStatSummaryCSV() {
         globalStatsWriter.setFilename(L"LiveData\\GlobalSummary_" + std::to_wstring(globalFileNumber) + L".csv");

@@ -82,6 +82,9 @@
     <ClInclude Include="ctsEstats.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ctsStatsObserver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="ctsWriteDetails.h">
       <Filter>Header Files</Filter>
     </ClInclude>

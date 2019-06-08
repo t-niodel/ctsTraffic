@@ -393,6 +393,7 @@
     <ClInclude Include="..\ctl\ctWmiProperties.hpp" />
     <ClInclude Include="..\ctl\ctWmiService.hpp" />
     <ClInclude Include="ctsEstats.h" />
+    <ClInclude Include="ctsStatsObserver.h" />
     <ClInclude Include="ctsWriteDetails.h" />
     <ClInclude Include="ctsWriteDetails.hpp" />
     <ClInclude Include="resource.h" />
